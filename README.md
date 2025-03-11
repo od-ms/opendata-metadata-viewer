@@ -1,3 +1,12 @@
+
+# Dokumentation
+
+Arbeiten mit DuckDB/WASM/SQL
+* Duckdb Wrapper in Observable Stdlib: https://github.com/observablehq/stdlib/blob/main/src/duckdb.js
+* DuckDbAsync: https://shell.duckdb.org/docs/classes/index.AsyncDuckDB.html
+
+
+
 # GitHub Codespaces + Observable Framework
 
 This is an [Observable Framework](https://observablehq.com/framework) project. To start the local preview server, run:
