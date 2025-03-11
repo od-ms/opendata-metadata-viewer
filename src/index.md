@@ -1,126 +1,181 @@
 ---
-theme: dashboard
-title: SQL Test
 toc: false
+title: Stromspeicher
+theme: [wide]
 ---
 
-# Open Data Münster Monitoring
+# Open Data Datensätze Münster
 
 ```js
-// import { DuckDBClient } from 'npm:@cmudig/duckdb'
-// import { SummaryTable } from "npm:@observablehq/summary-table"
+import {DonutChart} from "./components/donutChart.js";
+import {Swatches} from "./components/swatches.js";
+// import {bigNumber} from "./components/bigNumber.js";
 
-// LADE die CSV in DUCKDB
-import {utcParse} from "npm:d3-time-format";
-
-const parseDate = utcParse("%Y-%m-%dT%H:%M:%S.%LZ");
+const regex = /\s*".*$/  // /("\s*|\(\d+\))/gi;
 const coerceRow = function(d) {
-
-    for (const key of ['NodeID']) {
-        d[key] = Number(d[key]);
-    } 
-    for (const key of ['Created']) {
-        //d[key] = parseDate(d[key]);
-    } 
-    for (const key of ['Description', 'Beschreibung']) {
-        delete d[key];
+    // Lösche die IDs aus den Referenzwerten
+    for (const key of ['Tags', 'Groups']) {
+        if (d[key]) {
+            d[key] = d[key].substring(1,500).replace(regex, "");
+        }
     } 
     return d;
 }
-
-const db = DuckDBClient.of({
-    datensaetze: FileAttachment('data/datensaetze.csv').csv({
-      //  normalize_names=true
-       // delimiter: ',', 
-    }).then((D) => D.map(coerceRow)),
-        ressourcen: FileAttachment('data/ressourcen.csv').csv({
-       // delimiter: ',', 
-    }).then((D) => D.map(coerceRow))
-});
+const rawInputData = FileAttachment("data/datensaetze.csv").csv({typed: true}).then((D) => D.map(coerceRow));
+const anlagenListeGefiltert = rawInputData;
 ```
 
-```js 
-const res2 = await db.query("SELECT Groups, Author, ExtraQuelle Datenquelle, count(*), min(NodeID) FROM  datensaetze WHERE Groups LIKE '\"Stadt%' GROUP BY Groups, Author, Datenquelle ORDER BY Datenquelle");
-const selectedFields2 = view(Inputs.table(res2));
+```js
+// Extract Earliest and Latest Date from CSV File
+const dateColumn = rawInputData.map(function(d) { return d.Created });
+const beginDate = dateColumn.sort(d3.ascending)[0];
+const endDate = dateColumn.sort(d3.descending)[0];
 ```
 
-```js 
-const res3 = await db.query("SELECT NodeID, Created, Title, Groups, Author, DDPublisher, DDOriginator, ExtraQuelle Datenquelle FROM datensaetze WHERE  Groups LIKE '\"Stadt M%'  AND Datenquelle = ''");
+
+<div class="card" style="height: 120px;overflow:hidden">
+${resize((width, height) => zeitverlauf(width, height))}
+</div>
+
+```js
+function zeitverlauf(width, height) {return Plot.plot({
+    height:120,
+    width,
+  marks: [
+    Plot.tickX(rawInputData, {
+        x: "Created",
+        stroke: {value: "Tags"},
+        channels: {
+            Title: {
+                value: "Title",
+                label: ""
+            },
+        //    Tags: "Tags",
+            Groups: "Groups",
+            License: "License", 
+            ExtraQuelle:  {
+                value: "ExtraQuelle",
+                label: "Quelle"
+            },
+            NutzbareSpeicherkapazitaet:  {
+                value: "NutzbareSpeicherkapazitaet",
+                label: "Speicherkapazität"
+            },
+        },
+        tip: { 
+            dy:-40,
+            anchor: "top",
+            format: {
+                Title: true,
+                Created: true,
+                x: "%d. %b %Y",
+                ExtraQuelle: true,
+                Tags: d => d.toString(), 
+                NutzbareSpeicherkapazitaet: d => d.toString() + " kWh", 
+            }
+        }}),
+    Plot.crosshairX(rawInputData, {x: "Created", color: "red", opacity: 1})
+  ]
+})
+}
+```
+
+
+```js
+// Hilfsfunktionen für die Pie Charts
+
+function calcDonutSum(field) {
+    // Berechnung der Prozentualen Anteile in den Pie Charts bzw Donuts
+    // Anleitung für d3.rollups: https://observablehq.com/@d3/d3-group
+    return d3.rollups(
+        anlagenListeGefiltert, 
+        v => v.length, 
+        d => d[field]
+    ).map(([name, value]) => ({name, value}));
+}
+
+function myDonut(data, name, cols) {
+
+    const ress= data.map(function (d) {
+        var einheit ="";
+        return [d.name + ' ('+Math.floor(d.value)+einheit+')']});
+    return html`
+    ${resize(width => DonutChart(data, {centerText: name, width, colorDomain: cols, colorRange: cols}))}
+    ${Swatches(d3.scaleOrdinal(ress, cols))}
+    `;
+}
+```
+
+
+## Kategorien
+
+<div class="grid grid-cols-3">
+  <div class="card ">${myDonut(calcDonutSum('License'), "License", d3.schemePaired)}</div>
+  <div class="card ">${myDonut(calcDonutSum('Tags'), "Tags", d3.schemeObservable10)}</div>
+  <div class="card ">${myDonut(calcDonutSum('ExtraQuelle'), "Amt", d3.schemeTableau10)}</div>
+
+
+</div>
+
+
+
+
+## Datentabelle
+
+```js
+// Visuelle Darstellung in der Tabellenspalte "Leistung"
+
+function sparkbar(max) { 
+   // logarithmic sparkbar
+  return (x) => htl.html`<div style="
+    background: var(--theme-green);
+    color: black;
+    font: 10px/1.6 var(--sans-serif);
+    width: ${100 * Math.log(x+1)/Math.log(max+1)}%;
+    float: right;
+    padding-right: 3px;
+    box-sizing: border-box;
+    overflow: visible;
+    display: flex;
+    justify-content: end;">${Math.floor(x).toLocaleString("de-DE")}kWh`
+}
+
+// Create search input (for searchable table)
+const tableSearch = Inputs.search(anlagenListeGefiltert);
+const tableSearchValue = view(tableSearch);
 ```
 
 
 <div class="card" style="padding: 0">
   <div style="padding: 1em">
-  ${display(Inputs.table(res3, {
-      sort: "NodeID",
-      reverse: true,
-      rows: 18,
-      header: 
-        {
-          NodeID: "ID/Link"
-          },
-        width: {
-            NodeID: 50,
-            Created: 80,
-            Title: 200},
-        format: {
-//            Id: id => htl.html`<a href="https://www.marktstammdatenregister.de/MaStR/Einheit/Detail/EinheitDetailDrucken/${id}" target=_blank>${id}</a>`,
-            NodeID: id => htl.html`<a href="https://opendata.stadt-muenster.de/node/${id}/edit" target=_blank>${id}</a>`,
-            Plz: d => d.toString(), 
-            Bruttoleistung: (d) => (d + "kW"),
-            Created: v => v.substring(0,10), //d3.utcParse("%Y-%m-%dT%H:%M:%S+"),
-        }
-    }
+    ${display(tableSearch)}
+  </div>
+  <div style="padding: 1em">
+  ${display(Inputs.table(tableSearchValue, {
+     rows: 18,
+      columns: [
+        "Created",
+        "Modified",
+        "NodeID",
+        "Title",
+        "Groups", 
+        "Tags",
+        "Author",
+        "ExtraQuelle",
+        "URL"
+      ],
+  }
   ))}
     </div>
 </div>
 
+<div class="card">
+<table style="opacity:0.8">
+<tr><th colspan="2">Information zu den dargestellten Daten</th></tr>
+<tr><td>Datenstand:</td><td>${endDate.toLocaleDateString("de-DE")}</td></tr>
+<tr><td>Datenquelle:</td><td><a href="https://opendata.stadt-muenster.de">Stadt Münster / citeq</a></td></tr>
+<tr><td>Lizenz:</td><td><a href="https://www.govdata.de/dl-de/by-2-0">Datenlizenz Deutschland – Namensnennung – Version 2.0</a></td></tr>
+<tr><td>Datendownload:</td><td><a href="https://opendata.stadt-muenster.de"> Open Data Portal Münster</a></td></tr>
+</table>
 
-```js 
-// ## Verfügbare Datenfelder
-// "describeColumns" ist cool, aber brauchen wir nicht, weil "SUMMARIZE" ist noch besser
-// const selectedFields = view(Inputs.table(db.describeColumns({table: "batteries"})))
-```
-
-## Zusammenfassung der Ressourcen
-```js 
-const resr = await db.query("SUMMARIZE ressourcen");
-const selectedFieldsR = view(Inputs.table(resr));
-```
-
-
-## Zusammenfassung der Datenfelder
-```js 
-const res = await db.query("SUMMARIZE datensaetze");
-const selectedFields = view(Inputs.table(res));
-```
-
-Ausgewählte Felder:
-```js 
-view(selectedFields )
-```
-
-
-
-
-## Felder mit mehr als 1 Wert
-```js
-function filterF(res) {
-    var fields = []
-    for (const row of res) {
-        if (row.approx_unique > 1) {
-            fields.push(row.column_name)
-        } 
-    } 
-    return fields
-}
-const interesting_fields = filterF(res)
-
-display(interesting_fields)
-```
-
-## Alle Daten
-```js 
-display(Inputs.table(db.query("SELECT " + interesting_fields.join(',') + " FROM datensaetze")));
-```
-test
+</div>
