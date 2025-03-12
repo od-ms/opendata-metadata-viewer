@@ -18,7 +18,7 @@ rows = []
 # Spaltentitel umformatieren so dass sie als SQL Spaltennamen verwendet werden können
 first_row = next(ws.iter_rows(values_only=True))
 cleaned_first_row = [remove_special_characters(str(cell)) if cell is not None else cell for cell in first_row]
-rows.append(tuple(cleaned_first_row))
+rows.append(("DatasetID", "NodeID") + tuple(cleaned_first_row[56:]))
 
 # Erste beiden Spalten befüllen
 col1 = 0
