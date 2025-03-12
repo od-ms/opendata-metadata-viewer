@@ -1,6 +1,6 @@
 ---
 toc: false
-title: Stromspeicher
+title: Open Data
 theme: [wide]
 ---
 
@@ -21,6 +21,32 @@ const coerceRow = function(d) {
     } 
     return d;
 }
+const enhanceRessourceData = function(row) {
+    const url = row["ResourceUrl"] ? row["ResourceUrl"].substring(8) : "";
+    const typelist = [
+        [/^[^\/]*github/i, 'github'],
+        [/^www.stadt-muenster.de\/ows\/mapserv/i, 'geosrv'],
+        [/^geo\d*.stadt-muenster.de/i, 'geosrv'],        
+        [/^www.stadt-muenster/i, 'stadt'],
+        [/^opendata.stadt-muenster/i, 'opendata'],
+        [/^oparl.stadt-muenster.de/i, 'fachanw'],
+        [/^wahlen.citeq.de/i, 'fachanw'],
+    ];
+    for (const [regex, type] of typelist) {
+        if (regex.test(url)) {
+            row["Hosting"] = type;
+            break;
+        }
+    }
+    if (! row["Hosting"]) {row["Hosting"]="extern"}
+    for (const key of ['DDLicense']) {
+        if (row[key]) {
+            row[key] = row[key].substring(1,500).replace(regex, "");
+        }
+    } 
+    return row;
+}
+const ressourceData = FileAttachment("data/ressourcen.csv").csv({typed: true}).then((D) => D.map(enhanceRessourceData));
 const rawInputData = FileAttachment("data/datensaetze.csv").csv({typed: true}).then((D) => D.map(coerceRow));
 const anlagenListeGefiltert = rawInputData;
 ```
@@ -84,18 +110,18 @@ function zeitverlauf(width, height) {return Plot.plot({
 ```js
 // Hilfsfunktionen für die Pie Charts
 
-function calcDonutSum(field) {
+function calcDonutSum(field, dataset) {
     // Berechnung der Prozentualen Anteile in den Pie Charts bzw Donuts
     // Anleitung für d3.rollups: https://observablehq.com/@d3/d3-group
     return d3.rollups(
-        anlagenListeGefiltert, 
+        dataset.filter((row) => row[field]!=null), 
         v => v.length, 
         d => d[field]
     ).map(([name, value]) => ({name, value}));
 }
 
 function myDonut(data, name, cols) {
-
+    console.log("data", data )
     const ress= data.map(function (d) {
         var einheit ="";
         return [d.name + ' ('+Math.floor(d.value)+einheit+')']});
@@ -107,20 +133,24 @@ function myDonut(data, name, cols) {
 ```
 
 
-## Kategorien
+## Datensätze Verteilung
 
 <div class="grid grid-cols-3">
-  <div class="card ">${myDonut(calcDonutSum('License'), "License", d3.schemePaired)}</div>
-  <div class="card ">${myDonut(calcDonutSum('Tags'), "Tags", d3.schemeObservable10)}</div>
-  <div class="card ">${myDonut(calcDonutSum('ExtraQuelle'), "Amt", d3.schemeTableau10)}</div>
+  <div class="card ">${myDonut(calcDonutSum('License',anlagenListeGefiltert), "Lizenz", d3.schemePaired)}</div>
+  <div class="card ">${myDonut(calcDonutSum('Tags',anlagenListeGefiltert), "Kategorie", d3.schemeObservable10)}</div>
+  <div class="card ">${myDonut(calcDonutSum('ExtraQuelle',anlagenListeGefiltert), "Amt", d3.schemeTableau10)}</div>
+</div>
 
+## Ressourcen Verteilung
 
+<div class="grid grid-cols-3">
+  <div class="card ">${myDonut(calcDonutSum('Hosting',ressourceData), "Hosting", d3.schemePaired)}</div>
+  <div class="card ">${myDonut(calcDonutSum('Format',ressourceData), "Dateiformat", d3.schemeObservable10)}</div>
+  <div class="card ">${myDonut(calcDonutSum('DDLicense',ressourceData), "Lizenz", d3.schemeTableau10)}</div>
 </div>
 
 
-
-
-## Datentabelle
+## Datensätze
 
 ```js
 // Visuelle Darstellung in der Tabellenspalte "Leistung"
@@ -152,8 +182,8 @@ const tableSearchValue = view(tableSearch);
   </div>
   <div style="padding: 1em">
   ${display(Inputs.table(tableSearchValue, {
-     rows: 18,
-      columns: [
+    rows: 18,
+    columns: [
         "Created",
         "Modified",
         "NodeID",
@@ -163,7 +193,49 @@ const tableSearchValue = view(tableSearch);
         "Author",
         "ExtraQuelle",
         "URL"
-      ],
+    ],
+    width: {
+        Created: 70,
+        Modified: 70,
+        NodeID: 50
+    },
+    format: {
+        URL: id => htl.html`<a href="${id}" target=_blank>${id}</a>`,
+        NodeID: d => d.toString(), 
+        Created: d3.utcFormat("%d.%m.%Y"),
+        Modified: d3.utcFormat("%d.%m.%Y")
+    }
+  }
+  ))}
+    </div>
+</div>
+
+## Ressourcen
+
+<div class="card" style="padding: 0">
+  <div style="padding: 1em">
+  ${display(Inputs.table(ressourceData, {
+        rows: 18,
+        columns: [
+            "Hosting",
+            "Format",            
+            "NodeID",
+            "LfdNr",
+            "ResourceName",
+            "ResourceUrl",
+            "DDLicense",
+            "ResourceTypDetail"
+        ],
+    width: {
+        Hosting: 70,
+        NodeID: 50,
+        Format: 50,
+        LfdNr: 60,
+    },
+      format: {
+            ResourceUrl: id => htl.html`<a href="${id}" target=_blank>${id}</a>`,
+            NodeID: d => d.toString(),
+        }
   }
   ))}
     </div>
